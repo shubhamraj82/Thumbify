@@ -4,6 +4,7 @@ import cors from "cors";
 import connectDB from "./config/db.js";
 import session from "express-session";
 import MongoStore from "connect-mongo";
+import AuthRouter from "./routes/AuthRoute.js";
 
 declare module 'express-session' {
    interface SessionData {
@@ -33,15 +34,21 @@ await connectDB();
    },
    store: MongoStore.create({
       mongoUrl:process.env.MONGODB_URI as string,
-      collectionName:'sesssion'
+      collectionName:'session'
    })
  }))
 
-  const port=process.env.PORT ||3000;
+ 
    app.use(express.json());
+
+
  app.get('/',(req:Request,res:Response)=>{
     res.send('Server is running');
  });
+
+ app.use('/api/auth', AuthRouter);
+
+ const port=process.env.PORT ||3000;
  app.listen(port,()=>{
     console.log(`Server is running at http://localhost:${port}`);
  });
