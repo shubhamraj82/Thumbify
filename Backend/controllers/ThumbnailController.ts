@@ -2,6 +2,11 @@ import  {Request,Response}  from "express";
 import Thumbnail from "../model/thumbnail.js";
 import { GenerateContentConfig, HarmCategory } from "@google/genai";
 import { HarmBlockThreshold } from "@google/genai";
+import ai from "../config/ai.js";
+import { error } from "node:console";
+import path from "path";
+import fs from "fs";
+import {v2 as cloudinary} from 'cloudinary';
 
 const stylePrompts = {
     'Bold & Graphic': 'eye-catching thumbnail, bold typography, vibrant colors, expressive facial reaction, dramatic lighting, high contrast, click-worthy composition, professional style',
@@ -74,7 +79,72 @@ export const generateThumbnail = async (req:Request, res:Response)=>{
                 }
             ]
         }
+
+        let prompt=`Create a ${stylePrompts[style as keyof typeof stylePrompts]} for : "${title}".`;
+        if(color_scheme){
+            prompt+= `use a ${colorSchemeDescriptions[color_scheme as keyof typeof colorSchemeDescriptions]} color scheme.`
+        }
+        if(user_prompt){
+            prompt+=`Additonal details: ${user_prompt}`
+        }
+        prompt+=`The thumbnail should be ${aspect_ratio}, visually stunning , and designed to maximize click-through rate . Make it bold , professional , and impossible to ignore.`
+
+        //call to genai api to generate image
+        const response:any = await ai.models.generateContent({
+            model,
+            contents:[prompt],
+            config:generationConfig
+        })
+
+        //check if the response is valid 
+        if(!response?.candidates?.[0]?.content?.parts){
+            throw new Error('Unexpected response from AI model')
+        }
+        const parts = response.candidates[0].content.parts; 
+
+        let finalBuffer: Buffer | null =null;
+
+        for(const part of parts){
+            if(part.inlineData){
+                finalBuffer=Buffer.from(part.inlineData.data, 'base64')
+            }
+        }
+
+        const filename=`final-output-${Date.now()}.png`;
+        const filePath=path.join('images', filename);
+
+        //Create the images directory if it doesn't exist
+        fs.mkdirSync('images',{recursive:true})
+
+        //Write the final image to the file
+        fs.writeFileSync(filePath,finalBuffer!);
+
+        const uploadResult = await cloudinary.uploader.upload(filePath,{resource_type:'image'})
+
+        thumbnail.image_url = uploadResult.url;
+        thumbnail.isGenerating = false;
+        await thumbnail.save();
+
+        res.json({message: 'Thumbnail Generated', thumbnail})
+
+        //remove image file from disk
+        fs.unlinkSync(filePath);
     } catch (error: any) {
-        
+        console.log(error);
+        res.status(500).json({message:error.message});
+    }
+}
+
+export const deleteThumbnail = async (req:Request, res:Response)=>{
+    try {
+        const {id}=req.params;
+        const {userId}=req.session;
+
+        await Thumbnail.findByIdAndDelete({_id:id,userId})
+
+        res.json({message:'Thumbnail deleted successfully'});
+    } catch (error:any) {
+         console.log(error);
+        res.status(500).json({message:error.message});
     }
 }
